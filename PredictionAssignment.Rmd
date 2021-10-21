@@ -1,0 +1,155 @@
+---
+title: "Practical Machine Learning Prediction Assignment"
+author: "MossyMoose (GitHub username of Coursera Student)"
+date: "10/21/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## Introduction
+*From the course assignment,* using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+To conduct our analysis, we use the `caret` package to construct a decision/classification tree and a random forest model to predict values in a test data set of 20 observations.
+
+## Data Collection, Preprocessing, and Exploration
+
+We will use the `caret` package in our analysis, which we load first.
+
+``` {r message = FALSE, warning = FALSE}
+library(caret)
+```
+
+Next, we download the training and test data.
+
+``` {r}
+# Download and read in the training and testing data
+# Training: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+# Test: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+trainData<-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
+testData<-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
+```
+
+Since our test data is the actual data for which we need to predict values, we will split the training data into training and test sets. As is common practice, we'll split the training data into 60% for training and 40% for testing.
+
+``` {r}
+# Set a random number seed for reproducibility
+set.seed(22740)
+
+# Split training data into two parts, 60% for training and 40% for testing
+inTrain <- createDataPartition(y=trainData$classe, p=0.6, list=FALSE)
+train <- trainData[inTrain, ]
+test <- trainData[-inTrain, ]
+
+# Change test$classe to a factor variable since this will be needed later
+test$classe<-as.factor(test$classe)
+
+# Confirm size of data sets
+dim(train)
+dim(test)
+```
+
+We have a 160 variables, which is a lot to work with. Next, we'll explore the data and start to clean it with the goal of removing unneeded variables and simplifying the data set.
+
+First, we'll look at the first couple of rows of the data. **NOTE: This step is omitted from the report due to the length of the output.**
+
+```{r results=FALSE}
+# Look at the first few rows of data; omitted for HTML report
+head(train)
+```
+
+As we can see, the first variable, `X`, appears to be an index, and the next six columns after that are informational about the samples but not of value for predictions. We'll remove them since they're not good predictors.
+
+```{r}
+# Remove the first seven columns since they're not predictors
+train <- train[-c(1:7)]
+```
+
+Next, we'll remove zero covariates. As we can see, there were 52 such variables!
+
+```{r}
+# Remove zero covariates
+nzv<-nearZeroVar(train)
+train<-train[, -nzv]
+
+# How many near zero covariates were there?
+length(nzv)
+```
+
+Next, we look at how many columns have missing data and see that a lot of the variables are missing approximately 98% of values. We remove these variables by selecting only the columns with less than 95% NAs.
+
+```{r}
+# colMeans(is.na(train)) -- this command ommitted from final HTML for brevity
+# Clean variables with too many NAs
+train<-train[, colMeans(is.na(train))<.95]
+```
+
+This has left us with a much nicer data set on which to base our prediction models.
+
+```{r}
+#summary(train)
+```
+
+## Analysis
+
+We are now ready to develop prediction models for consideration. We will look at two models:
+
+1. Decision Tree
+2. Random Forest
+
+We use 3-fold cross-validation for our models.
+
+### Decision Tree
+We will construct a decision tree using `caret`'s `rpart` method. As we see from the output, we have an accuracy rate of around 50%. As we see with the table comparing predictions versus actuals, we are way off. At the end, we show the error expressed as a percentage of the total predictions, which is our out-of-sample error of about 50%.
+
+``` {r}
+# Decision tree
+modDT<-train(classe~., data=train, method="rpart",
+             trControl=trainControl(method="cv", number=3, verboseIter=F))
+predDT<-predict(modDT, test)
+confusionMatrix(predDT, test$classe)
+plot(modDT)
+postResample(predDT, test$classe)
+table(predDT, test$classe)
+sum(predDT!=test$classe)/length(predDT)
+```
+
+Next, we construct a random forest model. We're using `caret`'s `ranger` method due to the large amount of processing time the `rf` method required. The accuracy rate was over 99%, which is phenomenal. Our out-of-sample error is approximately 0.5%.
+
+```{r}
+# Random forest (using ranger method due to processing time)
+modRF<-train(classe~., data=train, method="ranger",
+             trControl=trainControl(method="cv", number=3, verboseIter=F))
+predRF<-predict(modRF, test)
+confusionMatrix(predRF, test$classe)
+plot(modRF)
+postResample(predRF, test$classe)
+table(predRF, test$classe)
+sum(predRF!=test$classe)/length(predRF)
+```
+
+*NOTE: We attempted to use a generalized boosted model using the `gbm` method. However, we encountered errors that we are not able to address. Therefore, we are not using the `gbm` method.*
+
+## Selection of Final Model
+Ideally we would have had more models to test, but we encountered processing issues. Of the two models, the random forest approach was by far the most accurate.
+
+```{r echo=FALSE}
+data.frame(Model=cbind(c("Tree", "Forest")),
+           Accuracy=c(round(confusionMatrix(predDT, test$classe)$overall[1],4),
+                      round(confusionMatrix(predRF, test$classe)$overall[1],4)))
+```
+
+## Predictions Using Test Data
+We now use our random forest model to predict using the test data in the `testData` data set. The output of this step is omitted from the write-up.
+
+```{r}
+testPred<-predict(modRF, testData)
+# testPred
+```
+
+## For More Information
+This report and supporting information is available at my [GitHub repository] (https://github.com/MossyMoose/PMLPredictionAssignment).
